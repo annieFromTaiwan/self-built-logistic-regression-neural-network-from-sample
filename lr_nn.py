@@ -6,7 +6,7 @@ from PIL import Image
 from scipy import ndimage
 
 
-def load_dataset(train_filepath, test_filepath):
+def read_dataset_from_h5(train_filepath, test_filepath):
     train_dataset = h5py.File(train_filepath, "r")
     train_set_x_orig = np.array(train_dataset["train_set_x"][:]) # your train set features
     train_set_y_orig = np.array(train_dataset["train_set_y"][:]) # your train set labels
@@ -21,6 +21,63 @@ def load_dataset(train_filepath, test_filepath):
     test_set_y_orig = test_set_y_orig.reshape((1, test_set_y_orig.shape[0]))
 
     return train_set_x_orig, train_set_y_orig, test_set_x_orig, test_set_y_orig, classes
+
+def preprocess_dataset(train_x_orig, test_x_orig, m_train, m_test, w_dim):
+    """ 
+    Preprocess:
+        1. Flatten
+        2. Standardize
+    
+    # Detailed description of Preprocessing Step:
+    #   - to center and standardize your dataset
+    #   - e.g. substract the mean of the whole numpy array from each example, 
+    #          and then divide each example by the standard deviation of the whole numpy array. 
+    #   - for picture datasets, divide every pixel by 255 (the maximum value of a pixel channel).
+    """
+    train_X = train_x_orig.reshape(m_train, w_dim).T / 255.
+    test_X = test_x_orig.reshape(m_test, w_dim).T / 255.
+    return train_X, test_X
+
+
+def load_dataset(train_filepath, test_filepath, print_info=True, testing_mode=False):
+    train_x_orig, train_y_orig, test_x_orig, test_y_orig, classes = read_dataset_from_h5(train_filepath, test_filepath)
+    
+    if testing_mode:
+        print (classes)                 # [b'non-cat' b'cat']
+        print (train_x_orig.shape)      # (209, 64, 64, 3)
+        print (train_y_orig.shape)      # (1, 209)
+        print (test_x_orig.shape)       # (50, 64, 64, 3)
+        print (test_y_orig.shape)       # (1, 50)
+    
+    assert (train_y_orig.shape[1] == train_x_orig.shape[0])     # m_train
+    assert (test_y_orig.shape[1] == test_x_orig.shape[0])       # m_test
+    assert (train_x_orig.shape[1:] == test_x_orig.shape[1:])    # image size
+
+    if testing_mode:
+        # Showing the 25th picture for example.
+        index = 25
+        plt.imshow(train_x_orig[index])
+        print ("y = " + str(train_y_orig[:, index]) + ", it's a '" + classes[np.squeeze(train_y_orig[:, index])].decode("utf-8") +  "' picture.")
+        plt.show()
+
+    m_train = train_y_orig.shape[1]
+    m_test = test_y_orig.shape[1]
+    w_dim = train_x_orig.shape[1] * train_x_orig.shape[2] * train_x_orig.shape[3]
+
+    train_Y, test_Y = train_y_orig, test_y_orig
+    train_X, test_X = preprocess_dataset(train_x_orig, test_x_orig, m_train, m_test, w_dim)
+
+    if print_info:
+        print ("Each image is of size: " + str(train_x_orig.shape[1:]))
+        print ("Number of training examples: m_train = " + str(m_train))
+        print ("Number of testing  examples: m_test  = " + str(m_test))
+        print ("train_Y shape: " + str(train_Y.shape))
+        print ("test_Y  shape: " + str(test_Y.shape))
+        print ("train_X shape: " + str(train_X.shape))
+        print ("test_X  shape: " + str(test_X.shape))
+        print ("sanity check after reshaping: " + str(train_X[0:5,0]))
+
+    return train_X, train_Y, test_X, test_Y, classes
 
 
 sigmoid = lambda z: ( 1 / (1 + np.exp(-z)) )
@@ -191,7 +248,8 @@ def model(X_train, Y_train, X_test, Y_test, num_iterations = 2000, learning_rate
     """
     
     # Initialize model parameters.
-    w, b = initialize_with_zeros(X_train.shape[0])
+    w = np.zeros((X_train.shape[0], 1))
+    b = 0
 
     # Gradient descent.
     parameters, grads, costs = optimize(w, b, X_train, Y_train, num_iterations, learning_rate, print_cost)
@@ -222,58 +280,6 @@ def model(X_train, Y_train, X_test, Y_test, num_iterations = 2000, learning_rate
 
 if __name__ == '__main__':
 
-    testing_mode = True
+    train_X, train_Y, test_X, test_Y, classes = load_dataset('datasets/train_catvnoncat.h5', 'datasets/test_catvnoncat.h5')
 
-    X_train_orig, Y_train, X_train_test, Y_test, classes = load_dataset('datasets/train_catvnoncat.h5', 'datasets/test_catvnoncat.h5')
-
-    if testing_mode:
-        print (classes)                     # [b'non-cat' b'cat']
-        print (X_train_orig.shape)      # (209, 64, 64, 3)
-        print (Y_train.shape)           # (1, 209)
-        print (X_train_test.shape)       # (50, 64, 64, 3)
-        print (Y_test.shape)            # (1, 50)
-
-        # Example of a picture
-        index = 25
-        plt.imshow(X_train_orig[index])
-        print ("y = " + str(Y_train[:, index]) + ", it's a '" + classes[np.squeeze(Y_train[:, index])].decode("utf-8") +  "' picture.")
-        plt.ion()
-        plt.show()
-        #plt.close()
-
-    assert (X_train_orig.shape[0] == Y_train.shape[1])  # m_train
-    assert (X_train_test.shape[0] == Y_test.shape[1])  # m_test
-
-    m_train = Y_train.shape[1]
-    m_test = Y_test.shape[1]
-    num_px = X_train_orig.shape[1]
-
-    print ("Number of training examples: m_train = " + str(m_train))
-    print ("Number of testing examples: m_test = " + str(m_test))
-    print ("Height/Width of each image: num_px = " + str(num_px))
-    print ("Each image is of size: (" + str(num_px) + ", " + str(num_px) + ", 3)")
-    print ("train_set_x shape: " + str(X_train_orig.shape))
-    print ("Y_train shape: " + str(Y_train.shape))
-    print ("test_set_x shape: " + str(X_train_test.shape))
-    print ("Y_test shape: " + str(Y_test.shape))
-
-    # Flatten Step
-    X_train_flattened = X_train_orig.reshape(m_train, num_px * num_px * 3).T
-    X_test_flattened = X_train_test.reshape(m_test, num_px * num_px * 3).T
-
-    if testing_mode:
-        print ("X_train_flattened shape: " + str(X_train_flattened.shape))
-        print ("X_test_flattened shape: " + str(X_test_flattened.shape))
-        print ("sanity check after reshaping: " + str(X_train_flattened[0:5,0]))
-
-    # Preprocessing Step
-    #   - to center and standardize your dataset
-    #   - e.g. substract the mean of the whole numpy array from each example, 
-    #          and then divide each example by the standard deviation of the whole numpy array. 
-    #   - for picture datasets, divide every pixel by 255 (the maximum value of a pixel channel).
-    X_train = X_train_flattened / 255.
-    X_test = X_test_flattened / 255.
-
-
-    # Train & Test
-    d = model(X_train, Y_train, X_test, Y_test, num_iterations = 2000, learning_rate = 0.005, print_cost = True)
+    d = model(train_X, train_Y, test_X, test_Y, num_iterations = 2000, learning_rate = 0.005, print_cost = True)
